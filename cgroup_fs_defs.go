@@ -9,41 +9,47 @@ void traceSubsysRoot(char* ss_root, char* ss_name) {
 	tracepoint(cgroup_ust, cgroup_subsys_root, ss_root, ss_name);
 }
 
-void traceDumpPathId(char* path, int d_id) {
-	tracepoint(cgroup_ust, cgroup_path_dump_id, path, d_id);
+void traceAttachedPid(char* path, uint64_t* pids, uint pids_len) {
+	tracepoint(cgroup_ust, cgroup_attached_pids, path, pids, pids_len);
 }
 
-void traceAttachedPid(int d_id, int pid) {
-	tracepoint(cgroup_ust, cgroup_attached_pid, d_id, pid);
+void traceIntValue(char* path, char* file_name, int64_t val) {
+	tracepoint(cgroup_ust, cgroup_file_int_value, path, file_name, val);
 }
 
-void traceIntValue(int d_id, char* file_name, int64_t val) {
-	tracepoint(cgroup_ust, cgroup_file_int_value, d_id, file_name, val);
+void traceUintValue(char* path, char* file_name, uint64_t val) {
+	tracepoint(cgroup_ust, cgroup_file_uint_value, path, file_name, val);
 }
 
-void traceUintValue(int d_id, char* file_name, uint64_t val) {
-	tracepoint(cgroup_ust, cgroup_file_uint_value, d_id, file_name, val);
+void traceStringValue(char* path, char* file_name, char* val) {
+	tracepoint(cgroup_ust, cgroup_file_string_value, path, file_name, val);
 }
 
-void traceStringValue(int d_id, char* file_name, char* val) {
-	tracepoint(cgroup_ust, cgroup_file_string_value, d_id, file_name, val);
+void traceStringPairValue(char* path, char* file_name, char* val1, char* val2) {
+	tracepoint(cgroup_ust, cgroup_file_string_pair_value, path, file_name, val1, val2);
 }
 
-void traceStringPairValue(int d_id, char* file_name, char* val1, char* val2) {
-	tracepoint(cgroup_ust, cgroup_file_string_pair_value, d_id, file_name, val1, val2);
+void traceBlkioValue(char* path, char* file_name, int64_t maj, int64_t min, uint64_t val) {
+	tracepoint(cgroup_ust, cgroup_file_blkio_value, path, file_name, maj, min, val);
 }
 
-void traceBlkioValue(int d_id, char* file_name, int64_t maj, int64_t min, uint64_t val) {
-	tracepoint(cgroup_ust, cgroup_file_blkio_value, d_id, file_name, maj, min, val);
+void traceDevicesValue(char* path, char* file_name, char* dev_type, char* maj, char* min, char* access) {
+	tracepoint(cgroup_ust, cgroup_file_devices_value, path, file_name, dev_type, maj, min, access);
 }
 
-void traceDevicesValue(int d_id, char* file_name, char* dev_type, char* maj, char* min, char* access) {
-	tracepoint(cgroup_ust, cgroup_file_devices_value, d_id, file_name, dev_type, maj, min, access);
+void traceEmptyFile(char* path, char* file_name) {
+	tracepoint(cgroup_ust, cgroup_file_empty, path, file_name);
+}
+
+void tracePath(char* path, int status) {
+	tracepoint(cgroup_ust, cgroup_path_status, path, status);
 }
 */
 import "C"
 
 import (
+	"github.com/opencontainers/runc/libcontainer/cgroups"
+
 	"path/filepath"
 	"io/ioutil"
 	"strings"
@@ -51,13 +57,17 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"crypto/md5"
 )
 
-type CgroupFileHandler func(int, string, string) error
+type CgroupFileHandler func(string, string) error
 
 // Associates cgroup core/subsys filenames to handlers that will
 // read the file and trigger a trace event
 var cgroup_fs_defs = map[string]CgroupFileHandler {
+
+	// core cgroup files
+	"cgroup.procs": cgroupFileProcsHandler,
 
 	// "blkio" subsys files
 	"blkio.weight": cgroupFileUintHandler,
@@ -125,6 +135,9 @@ var cgroup_fs_lookaside_defs = map[*regexp.Regexp]string {
 	regexp.MustCompile(`hugetlb\.[^\.]*\.limit_in_bytes`): "hugetlb.limit_in_bytes",
 }
 
+// Keep track of information about the last file processed to avoid redundant dump
+var lastFileHash [16]byte
+
 // File handlers and helper functions
 
 // Source: github.com/opencontainers/runc/libcontainer/cgroups/fs/utils.go
@@ -134,6 +147,12 @@ func getStringFromFile(path string, filename string) (string, error) {
 		return "", err
 	}
 
+	hash := md5.Sum([]byte(string(contents)+path+filename))
+	if hash == lastFileHash {
+		return "", errors.New("File processing cancelled to avoid duplication")
+	}
+	lastFileHash = hash
+	
 	return strings.TrimSpace(string(contents)), nil
 }
 
@@ -143,16 +162,22 @@ func getStringLinesFromFile(path string, filename string) ([]string, error) {
 		return nil, err
 	}
 
+	hash := md5.Sum([]byte(string(contents)+path+filename))
+	if hash == lastFileHash {
+		return []string{}, errors.New("File processing cancelled to avoid duplication")
+	}
+	lastFileHash = hash
+
 	lines := strings.Split(string(contents), "\n")
 	if len(lines) > 0 {
 		return lines, nil
 	} else {
-		return []string{strings.TrimSpace(string(contents))}, nil
+		return []string{}, nil
 	}
 }
 
 
-func cgroupFileUintHandler(d_id int, path string, filename string) error {
+func cgroupFileUintHandler(path string, filename string) error {
 	strval, err := getStringFromFile(path, filename)
 	if err != nil {
 		return err
@@ -175,11 +200,11 @@ func cgroupFileUintHandler(d_id int, path string, filename string) error {
 		}
 	}
 
-	C.traceUintValue(C.int(d_id), C.CString(filename), C.uint64_t(value))
+	C.traceUintValue(C.CString(path), C.CString(filename), C.uint64_t(value))
 	return nil
 }
 
-func cgroupFileIntHandler(d_id int, path string, filename string) error {
+func cgroupFileIntHandler(path string, filename string) error {
 	strval, err := getStringFromFile(path, filename)
 	if err != nil {
 		return err
@@ -190,43 +215,55 @@ func cgroupFileIntHandler(d_id int, path string, filename string) error {
 		return err
 	}
 
-	C.traceIntValue(C.int(d_id), C.CString(filename), C.int64_t(value))
+	C.traceIntValue(C.CString(path), C.CString(filename), C.int64_t(value))
 	return nil
 }
 
-func cgroupFileStringHandler(d_id int, path string, filename string) error {
+func cgroupFileStringHandler(path string, filename string) error {
 	strval, err := getStringFromFile(path, filename)
 	if err != nil {
 		return err
 	}
 
-	C.traceStringValue(C.int(d_id), C.CString(filename), C.CString(strval))
+	C.traceStringValue(C.CString(path), C.CString(filename), C.CString(strval))
 	return nil
 }
 
-func cgroupFileBlkioHandler(d_id int, path string, filename string) error {
+func cgroupFileBlkioHandler(path string, filename string) error {
 	lines, err := getStringLinesFromFile(path, filename)
+
 	if err != nil {
 		return err
+	}
+
+	if len(lines) == 0 || lines[0] == "" {
+		C.traceEmptyFile(C.CString(path), C.CString(filename))
+		return nil
 	}
 
 	for _, line := range lines {
-		var dev_type, major, minor, access string
-		_, err := fmt.Sscanf(line, "%s %s:%s %s", &dev_type, &major, &minor, &access)
+		var major, minor int64
+		var val uint64
+		_, err := fmt.Sscanf(line, "%d:%d %d", &major, &minor, &val)
 		if err != nil {	
 			return err
 		}
-		fmt.Printf("%s %s:%s %s\n", dev_type, major, minor, access)
-		//C.traceBlkioValue(C.int(d_id), C.CString(filename), C.int64_t(major), C.int64_t(minor), C.uint64_t(val))
+		C.traceBlkioValue(C.CString(path), C.CString(filename), C.int64_t(major), C.int64_t(minor), C.uint64_t(val))
 	}
 
 	return nil
 }
 
-func cgroupFileDevicesHandler(d_id int, path string, filename string) error {
+func cgroupFileDevicesHandler(path string, filename string) error {
 	lines, err := getStringLinesFromFile(path, filename)
+
 	if err != nil {
 		return err
+	}
+
+	if len(lines) == 0 || lines[0] == "" {
+		C.traceEmptyFile(C.CString(path), C.CString(filename))
+		return nil
 	}
 
 	for _, line := range lines {
@@ -238,7 +275,7 @@ func cgroupFileDevicesHandler(d_id int, path string, filename string) error {
 			major = matches[2]
 			minor = matches[3]
 			access = matches[4]
-			C.traceDevicesValue(C.int(d_id), C.CString(filename), C.CString(dev_type), C.CString(major), C.CString(minor), C.CString(access))
+			C.traceDevicesValue(C.CString(path), C.CString(filename), C.CString(dev_type), C.CString(major), C.CString(minor), C.CString(access))
 		} else {
 			return errors.New("Error while parsing devices cgroup file")
 		}
@@ -248,10 +285,15 @@ func cgroupFileDevicesHandler(d_id int, path string, filename string) error {
 	return nil
 }
 
-func cgroupFileStringPairsHandler(d_id int, path string, filename string) error {
+func cgroupFileStringPairsHandler(path string, filename string) error {
 	lines, err := getStringLinesFromFile(path, filename)
 	if err != nil {
 		return err
+	}
+
+	if len(lines) == 0 {
+		C.traceEmptyFile(C.CString(path), C.CString(filename))
+		return nil
 	}
 
 	for _, line := range lines {
@@ -260,7 +302,7 @@ func cgroupFileStringPairsHandler(d_id int, path string, filename string) error 
 		if len(matches) > 2 {
 			val1 := matches[1]
 			val2 := matches[2]
-			C.traceStringPairValue(C.int(d_id), C.CString(filename), C.CString(val1), C.CString(val2))
+			C.traceStringPairValue(C.CString(path), C.CString(filename), C.CString(val1), C.CString(val2))
 		} else {
 			return errors.New("Error while parsing pair of strings in cgroup file")
 		}
@@ -270,16 +312,40 @@ func cgroupFileStringPairsHandler(d_id int, path string, filename string) error 
 	return nil
 }
 
+func cgroupFileProcsHandler(path string, filename string) error {
+	pids, err := cgroups.GetPids(path)
+
+	if err != nil {
+		return err
+	}
+
+	hash := md5.Sum([]byte(string(len(pids))+path+filename))
+	if hash == lastFileHash {
+		return errors.New("File processing cancelled to avoid duplication")
+	}
+	lastFileHash = hash
+
+	if len(pids) == 0 {
+		C.traceEmptyFile(C.CString(path), C.CString(filename))
+		return nil
+	}
+
+	if len(pids) > 0 {
+		pids_64 := make([]uint64, len(pids))
+		for i, pid := range pids {
+			pids_64[i] = uint64(pid)
+		}
+		C.traceAttachedPid(C.CString(path), (*C.uint64_t)(&pids_64[0]), C.uint(len(pids)))
+	}
+	return nil
+}
+
 // Simple trace functions
 
 func cgroupSubsysRootHandler(mountpoint string, subsys string) {
 	C.traceSubsysRoot(C.CString(mountpoint), C.CString(subsys))
 }
 
-func cgroupPathIdHandler(path string, id int) {	
-	C.traceDumpPathId(C.CString(path), C.int(id))
-}
-
-func cgroupAttachedPidHandler(currId int, pid int) {	
-	C.traceAttachedPid(C.int(currId), C.int(pid))
+func cgroupPathHandler(path string, status int) {
+	C.tracePath(C.CString(path), C.int(status))
 }

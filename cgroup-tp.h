@@ -28,35 +28,19 @@ TRACEPOINT_EVENT(
 
 TRACEPOINT_EVENT(
     cgroup_ust,
-    cgroup_path_dump_id,
+    cgroup_attached_pids,
 
     /* Input arguments */
     TP_ARGS(
-        char*, cgrp_path,
-        int, d_id
+        char*, path,
+        uint64_t*, pids_arr,
+        uint, pids_len
     ),
 
     /* Output event fields */
     TP_FIELDS(
-        ctf_string(path, cgrp_path)
-        ctf_integer(int, dump_id, d_id)
-    )
-)
-
-TRACEPOINT_EVENT(
-    cgroup_ust,
-    cgroup_attached_pid,
-
-    /* Input arguments */
-    TP_ARGS(
-        int, d_id,
-        int, pid
-    ),
-
-    /* Output event fields */
-    TP_FIELDS(
-        ctf_integer(int, dump_id, d_id)
-        ctf_integer(int, pid, pid)
+        ctf_string(cgrp_path, path)
+        ctf_sequence(uint64_t, pids, pids_arr, uint, pids_len)
     )
 )
 
@@ -66,14 +50,14 @@ TRACEPOINT_EVENT(
 
     /* Input arguments */
     TP_ARGS(
-        int, d_id,
+        char*, path,
         char*, f_name,
         int64_t, value
     ),
 
     /* Output event fields */
     TP_FIELDS(
-        ctf_integer(int, dump_id, d_id)
+        ctf_string(cgrp_path, path)
         ctf_string(filename, f_name)
         ctf_integer(int64_t, val, value)
     )
@@ -85,14 +69,14 @@ TRACEPOINT_EVENT(
 
     /* Input arguments */
     TP_ARGS(
-        int, d_id,
+        char*, path,
         char*, f_name,
         uint64_t, value
     ),
 
     /* Output event fields */
     TP_FIELDS(
-        ctf_integer(int, dump_id, d_id)
+        ctf_string(cgrp_path, path)
         ctf_string(filename, f_name)
         ctf_integer(uint64_t, val, value)
     )
@@ -104,14 +88,14 @@ TRACEPOINT_EVENT(
 
     /* Input arguments */
     TP_ARGS(
-        int, d_id,
+        char*, path,
         char*, f_name,
         char*, value
     ),
 
     /* Output event fields */
     TP_FIELDS(
-        ctf_integer(int, dump_id, d_id)
+        ctf_string(cgrp_path, path)
         ctf_string(filename, f_name)
         ctf_string(val, value)
     )
@@ -123,7 +107,7 @@ TRACEPOINT_EVENT(
 
     /* Input arguments */
     TP_ARGS(
-        int, d_id,
+        char*, path,
         char*, f_name,
         char*, value1,
         char*, value2
@@ -131,7 +115,7 @@ TRACEPOINT_EVENT(
 
     /* Output event fields */
     TP_FIELDS(
-        ctf_integer(int, dump_id, d_id)
+        ctf_string(cgrp_path, path)
         ctf_string(filename, f_name)
         ctf_string(val1, value1)
         ctf_string(val2, value2)
@@ -144,7 +128,7 @@ TRACEPOINT_EVENT(
 
     /* Input arguments */
     TP_ARGS(
-        int, d_id,
+        char*, path,
         char*, f_name,
         int64_t, maj,
         int64_t, min,
@@ -153,7 +137,7 @@ TRACEPOINT_EVENT(
 
     /* Output event fields */
     TP_FIELDS(
-        ctf_integer(int, dump_id, d_id)
+        ctf_string(cgrp_path, path)
         ctf_string(filename, f_name)
         ctf_integer(int64_t, major, maj)
         ctf_integer(int64_t, minor, min)
@@ -167,7 +151,7 @@ TRACEPOINT_EVENT(
 
     /* Input arguments */
     TP_ARGS(
-        int, d_id,
+        char*, path,
         char*, f_name,
         char*, device_type,
         char*, maj,
@@ -177,12 +161,51 @@ TRACEPOINT_EVENT(
 
     /* Output event fields */
     TP_FIELDS(
-        ctf_integer(int, dump_id, d_id)
+        ctf_string(cgrp_path, path)
         ctf_string(filename, f_name)
         ctf_string(dev_type, device_type)
         ctf_string(major, maj)
         ctf_string(minor, min)
         ctf_string(access, acc)
+    )
+)
+
+TRACEPOINT_EVENT(
+    cgroup_ust,
+    cgroup_file_empty,
+
+    /* Input arguments */
+    TP_ARGS(
+        char*, path,
+        char*, f_name
+    ),
+
+    /* Output event fields */
+    TP_FIELDS(
+        ctf_string(cgrp_path, path)
+        ctf_string(filename, f_name)
+    )
+)
+
+
+// The integer denotes:
+// 0: initial cgroup path
+// 1: added cgroup path
+// -1: removed cgroup path
+TRACEPOINT_EVENT(
+    cgroup_ust,
+    cgroup_path_status,
+
+    /* Input arguments */
+    TP_ARGS(
+        char*, path,
+        int, st
+    ),
+
+    /* Output event fields */
+    TP_FIELDS(
+        ctf_string(cgrp_path, path)
+        ctf_integer(int, status, st)
     )
 )
 

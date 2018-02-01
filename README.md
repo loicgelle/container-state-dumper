@@ -1,6 +1,6 @@
 # Container state dumper
 
-This helper tool can be used to perform a state dump for control groups and namespaces on a Linux machine. It creates user-space tracepoints for LTTng-ust (http://lttng.org/docs).
+This helper tool can be used to watch and trace the changes to control groups and namespaces on a Linux machine. It creates user-space tracepoints for LTTng-ust (http://lttng.org/docs).
 
 ## Prerequisites
 
@@ -26,11 +26,16 @@ This helper tool can be used to perform a state dump for control groups and name
 
 4. Start tracing: `lttng start`
 
-5. Back to the original terminal window, press Enter to start the state dump.
+5. Back to the original terminal window, press Enter to start the state dump and launch the watcher.
 
-6. When the tool exits, you can stop the tracing with `lttng stop` and analyze the output trace with babeltrace.
+6. You can stop the tracing any time with `lttng stop` and analyze the output trace with babeltrace.
 
 ## Development
+
+### Warning
+
+- Watching the changes in the cgroup filesystem is performed using the inotify mechanism. The memory consumption could be noticeable on systems with tens of thousands of control groups.
+- Latency in the trace information and overhead on the machine could be expected, although no evaluation has been performed yet.
 
 ### Working
 

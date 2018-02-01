@@ -4,31 +4,35 @@ import (
 	"fmt"
 	"os"
 	"bufio"
+	"path"
 	"path/filepath"
 	"io/ioutil"
 	"github.com/opencontainers/runc/libcontainer/cgroups"
+	"github.com/tywkeene/go-fsevents"
 )
 
-var cgroupUniqId int = 0
+// Control group statedump functions
 
-/* Control group statedump functions */
+func cgroupFileHandler(path string, filename string) {
+	fileHandler := cgroup_fs_defs[filename]
+	if fileHandler != nil {
+		fileHandler(path, filename)
+	} else {
+		// If filename not exactly matched, try to use regex matching
+		for pattern, match := range cgroup_fs_lookaside_defs {
+			if pattern.MatchString(filename) {
+				fileHandler := cgroup_fs_defs[match]
+				if fileHandler != nil {
+					fileHandler(path, filename)
+				}
+			}
+		}
+	}
+}
 
 func cgroupDumpHandler(path string, f os.FileInfo, err error) error {
 	if (f.IsDir()) {
-		currId := cgroupUniqId
-		cgroupUniqId++
-
-		/* TP: dump path id */
-		cgroupPathIdHandler(path, currId)
-		
-		pids, err := cgroups.GetPids(path)
-		if err == nil {
-			for _, pid := range pids {
-				/* TP: dump cgroup attached pid */				
-				cgroupAttachedPidHandler(currId, pid)
-			}
-		}
-
+		cgroupPathHandler(path, 0)
 		/* Handle files in path */
 		files, err := ioutil.ReadDir(path)
 		if err != nil {
@@ -36,35 +40,24 @@ func cgroupDumpHandler(path string, f os.FileInfo, err error) error {
 		}
 	
 		for _, f := range files {
-			filename := f.Name()
-			fileHandler := cgroup_fs_defs[filename]
-			if fileHandler != nil {
-				fileHandler(currId, path, filename)
-			} else {
-				// If filename not exactly matched, try to use regex matching
-				for pattern, match := range cgroup_fs_lookaside_defs {
-					if pattern.MatchString(filename) {
-						fileHandler := cgroup_fs_defs[match]
-						if fileHandler != nil {
-							fileHandler(currId, path, filename)
-						}
-					}
-				}
-			}
+			cgroupFileHandler(path, f.Name())
 		}
 	}
 	return nil
 }
 
-func makeCgroupsStatedump() {
+// Returns the subsys roots to watch
+func makeCgroupsStatedump() []string {
 	mounts, err := cgroups.GetCgroupMounts(false)
+	subsysRoots := make([]string, 0, 20)
 
-	/* Iterate through hierarchies */
+	// Iterate through hierarchies
 	if err == nil {
 		for _, m := range mounts {
 			for _, ss := range m.Subsystems {
-				/* TP: subsys root */
+				// TP: subsys root
 				cgroupSubsysRootHandler(m.Mountpoint, ss)
+				subsysRoots = append(subsysRoots, m.Mountpoint)
 			}
 			
 			// Print cgroup subdirs
@@ -76,14 +69,80 @@ func makeCgroupsStatedump() {
 	} else {
 		fmt.Println("Error while retrieving cgroup mountpoints.")
 	}
+
+	return subsysRoots
 }
 
-/* Main function */
+func handleCgroupEvents(watcher *fsevents.Watcher) {
+	watcher.StartAll()
+	go watcher.Watch()
 
+	for {
+		select {
+		case event := <-watcher.Events:
+			// In case file is modified
+			if event.IsFileChanged() {
+				filepath, filename := path.Split(event.Path)
+				cgroupFileHandler(filepath, filename)
+			}
+
+			// In case new cgroup is created
+			if event.IsDirCreated() {
+				// Add directory to watcher
+				dirpath := path.Clean(event.Path)
+				watcher.AddDescriptor(dirpath, 0)
+				descriptor := watcher.GetDescriptorByPath(dirpath)
+				descriptor.Start(watcher.FileDescriptor)
+
+				cgroupPathHandler(dirpath, 1)
+			}
+			
+			// In case cgroup is removed
+			if event.IsDirRemoved() {
+				dirpath := path.Clean(event.Path)
+				watcher.RemoveDescriptor(path.Clean(dirpath))
+
+				cgroupPathHandler(dirpath, -1)
+			}
+			
+			break
+		case err := <-watcher.Errors:
+			fmt.Println(err)
+			break
+		}
+	}
+}
+
+func startCgroupWatching(subsysRoots []string) {
+	options := &fsevents.WatcherOptions{
+		Recursive:       true,
+		UseWatcherFlags: true,
+	}
+	inotifyFlags := fsevents.Delete | fsevents.Create | fsevents.IsDir | fsevents.Modified | fsevents.MovedTo |
+		fsevents.Modified
+	
+	var w *fsevents.Watcher
+	var err error
+	for i, watchDir := range subsysRoots {
+		if i == 0 {
+			w, err = fsevents.NewWatcher(watchDir, inotifyFlags, options)
+                	if err != nil {
+                        	panic(err)
+                	}
+			continue
+		}
+		w.RecursiveAdd(watchDir, 0)
+	}
+	handleCgroupEvents(w)
+}
+
+
+// Main function 
 func main() {
 	fmt.Println("Ready for the statedump.")
 	fmt.Print("Press 'Enter' to continue...")
 	bufio.NewReader(os.Stdin).ReadBytes('\n') 
 
-	makeCgroupsStatedump()
+	subsysRoots := makeCgroupsStatedump()
+	startCgroupWatching(subsysRoots)
 }
