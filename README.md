@@ -34,7 +34,7 @@ This helper tool can be used to watch and trace the changes to control groups an
 
 ### Warning
 
-- Watching the changes in the cgroup filesystem is performed using the inotify mechanism. The memory consumption could be noticeable on systems with tens of thousands of control groups.
+- Watching the changes in the cgroup filesystem is performed using the mechanism inotify. The memory consumption could be noticeable on systems with tens of thousands of control groups.
 - Latency in the trace information and overhead on the machine could be expected, although no evaluation has been performed yet.
 
 ### Working
