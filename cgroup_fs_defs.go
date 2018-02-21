@@ -331,7 +331,6 @@ func cgroupFileProcsHandler(path string, filename string) error {
 	lastFileHash = hash
 
 	if len(pids) == 0 {
-		C.traceEmptyFile(C.CString(path), C.CString(filename))
 		return nil
 	}
 
