@@ -98,8 +98,6 @@ var cgroup_fs_defs = map[string]CgroupFileHandler {
 
 	// "freezer" subsys files
 	"freezer.state": cgroupFileStringHandler,
-	"freezer.self_freezing": cgroupFileUintHandler,
-	"freezer.parent_freezing": cgroupFileUintHandler,
 
 	// "hugetlb" subsys files
 	"hugetlb.limit_in_bytes": cgroupFileUintHandler,
@@ -126,6 +124,10 @@ var cgroup_fs_defs = map[string]CgroupFileHandler {
 	// "pids" subsys files
 	"pids.max": cgroupFileStringHandler,
 	// TODO: stat files
+
+	// "devices" subsys files
+	"devices.deny": cgroupFileDevicesHandler,
+	"devices.allow": cgroupFileDevicesHandler,
 
 }
 
@@ -254,15 +256,18 @@ func cgroupFileBlkioHandler(path string, filename string) error {
 	return nil
 }
 
-func cgroupFileDevicesHandler(path string, filename string) error {
-	lines, err := getStringLinesFromFile(path, filename)
+func cgroupFileDevicesHandler(path string, _ string) error {
+	// We need to read "devices.list" instead of the given write-only file
+	read_filename := "devices_list"
+
+	lines, err := getStringLinesFromFile(path, read_filename)
 
 	if err != nil {
 		return err
 	}
 
 	if len(lines) == 0 || lines[0] == "" {
-		C.traceEmptyFile(C.CString(path), C.CString(filename))
+		C.traceEmptyFile(C.CString(path), C.CString(read_filename))
 		return nil
 	}
 
@@ -275,7 +280,7 @@ func cgroupFileDevicesHandler(path string, filename string) error {
 			major = matches[2]
 			minor = matches[3]
 			access = matches[4]
-			C.traceDevicesValue(C.CString(path), C.CString(filename), C.CString(dev_type), C.CString(major), C.CString(minor), C.CString(access))
+			C.traceDevicesValue(C.CString(path), C.CString(read_filename), C.CString(dev_type), C.CString(major), C.CString(minor), C.CString(access))
 		} else {
 			return errors.New("Error while parsing devices cgroup file")
 		}
