@@ -1,7 +1,8 @@
 package main
 
-// #cgo LDFLAGS: -ldl -L. cgroup-tpp.a -llttng-ust
 /*
+#cgo LDFLAGS: -ldl -L. cgroup-tpp.a -llttng-ust
+
 #define TRACEPOINT_DEFINE
 #include "cgroup-tp.h"
 
@@ -25,16 +26,8 @@ void traceStringValue(char* path, char* file_name, char* val) {
 	tracepoint(cgroup_ust, cgroup_file_string_value, path, file_name, val);
 }
 
-void traceStringPairValue(char* path, char* file_name, char* val1, char* val2) {
-	tracepoint(cgroup_ust, cgroup_file_string_pair_value, path, file_name, val1, val2);
-}
-
-void traceBlkioValue(char* path, char* file_name, int64_t maj, int64_t min, uint64_t val) {
-	tracepoint(cgroup_ust, cgroup_file_blkio_value, path, file_name, maj, min, val);
-}
-
-void traceDevicesValue(char* path, char* file_name, char* dev_type, char* maj, char* min, char* access) {
-	tracepoint(cgroup_ust, cgroup_file_devices_value, path, file_name, dev_type, maj, min, access);
+void traceStringPairValues(char* path, char* file_name, char* raw_content) {
+	tracepoint(cgroup_ust, cgroup_file_string_pair_values, path, file_name, raw_content);
 }
 
 void traceEmptyFile(char* path, char* file_name) {
@@ -55,7 +48,6 @@ import (
 	"strings"
 	"strconv"
 	"errors"
-	"fmt"
 	"regexp"
 	"crypto/md5"
 )
@@ -72,12 +64,12 @@ var cgroup_fs_defs = map[string]CgroupFileHandler {
 	// "blkio" subsys files
 	"blkio.weight": cgroupFileUintHandler,
     "blkio.leaf_weight": cgroupFileUintHandler,
-    "blkio.weight_device": cgroupFileBlkioHandler,
-    "blkio.leaf_weight_device": cgroupFileBlkioHandler,
-    "blkio.throttle.read_bps_device": cgroupFileBlkioHandler,
-    "blkio.throttle.write_bps_device": cgroupFileBlkioHandler,
-    "blkio.throttle.read_iops_device": cgroupFileBlkioHandler,
-    "blkio.throttle.write_iops_device": cgroupFileBlkioHandler,
+    "blkio.weight_device": cgroupFileStringPairsHandler,
+    "blkio.leaf_weight_device": cgroupFileStringPairsHandler,
+    "blkio.throttle.read_bps_device": cgroupFileStringPairsHandler,
+    "blkio.throttle.write_bps_device": cgroupFileStringPairsHandler,
+    "blkio.throttle.read_iops_device": cgroupFileStringPairsHandler,
+    "blkio.throttle.write_iops_device": cgroupFileStringPairsHandler,
 	// TODO: stat files
 
 	// "cpu" subsys files
@@ -126,8 +118,8 @@ var cgroup_fs_defs = map[string]CgroupFileHandler {
 	// TODO: stat files
 
 	// "devices" subsys files
-	"devices.deny": cgroupFileDevicesHandler,
-	"devices.allow": cgroupFileDevicesHandler,
+	"devices.deny": cgroupFileStringPairsHandler,
+	"devices.allow": cgroupFileStringPairsHandler,
 
 }
 
@@ -231,89 +223,13 @@ func cgroupFileStringHandler(path string, filename string) error {
 	return nil
 }
 
-func cgroupFileBlkioHandler(path string, filename string) error {
-	lines, err := getStringLinesFromFile(path, filename)
-
-	if err != nil {
-		return err
-	}
-
-	if len(lines) == 0 || lines[0] == "" {
-		C.traceEmptyFile(C.CString(path), C.CString(filename))
-		return nil
-	}
-
-	for _, line := range lines {
-		var major, minor int64
-		var val uint64
-		_, err := fmt.Sscanf(line, "%d:%d %d", &major, &minor, &val)
-		if err != nil {	
-			return err
-		}
-		C.traceBlkioValue(C.CString(path), C.CString(filename), C.int64_t(major), C.int64_t(minor), C.uint64_t(val))
-	}
-
-	return nil
-}
-
-func cgroupFileDevicesHandler(path string, _ string) error {
-	// We need to read "devices.list" instead of the given write-only file
-	read_filename := "devices_list"
-
-	lines, err := getStringLinesFromFile(path, read_filename)
-
-	if err != nil {
-		return err
-	}
-
-	if len(lines) == 0 || lines[0] == "" {
-		C.traceEmptyFile(C.CString(path), C.CString(read_filename))
-		return nil
-	}
-
-	for _, line := range lines {
-		re := regexp.MustCompile(`(a|c|b)+?\s([0-9]|\*)+\:([0-9]|\*)+\s([r|w|m]+)`)
-		matches := re.FindStringSubmatch(line)
-		if len(matches) > 4 {
-			var dev_type, major, minor, access string
-			dev_type = matches[1]
-			major = matches[2]
-			minor = matches[3]
-			access = matches[4]
-			C.traceDevicesValue(C.CString(path), C.CString(read_filename), C.CString(dev_type), C.CString(major), C.CString(minor), C.CString(access))
-		} else {
-			return errors.New("Error while parsing devices cgroup file")
-		}
-		
-	}
-
-	return nil
-}
-
 func cgroupFileStringPairsHandler(path string, filename string) error {
-	lines, err := getStringLinesFromFile(path, filename)
+	strval, err := getStringFromFile(path, filename)
 	if err != nil {
 		return err
 	}
 
-	if len(lines) == 0 {
-		C.traceEmptyFile(C.CString(path), C.CString(filename))
-		return nil
-	}
-
-	for _, line := range lines {
-		re := regexp.MustCompile(`(\w+)\s(\w+)`)
-		matches := re.FindStringSubmatch(line)
-		if len(matches) > 2 {
-			val1 := matches[1]
-			val2 := matches[2]
-			C.traceStringPairValue(C.CString(path), C.CString(filename), C.CString(val1), C.CString(val2))
-		} else {
-			return errors.New("Error while parsing pair of strings in cgroup file")
-		}
-		
-	}
-
+	C.traceStringPairValues(C.CString(path), C.CString(filename), C.CString(strval))
 	return nil
 }
 

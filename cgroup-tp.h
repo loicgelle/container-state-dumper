@@ -103,70 +103,20 @@ TRACEPOINT_EVENT(
 
 TRACEPOINT_EVENT(
     cgroup_ust,
-    cgroup_file_string_pair_value,
+    cgroup_file_string_pair_values,
 
     /* Input arguments */
     TP_ARGS(
         char*, path,
         char*, f_name,
-        char*, value1,
-        char*, value2
+        char*, raw_content
     ),
 
     /* Output event fields */
     TP_FIELDS(
         ctf_string(cgrp_path, path)
         ctf_string(filename, f_name)
-        ctf_string(val1, value1)
-        ctf_string(val2, value2)
-    )
-)
-
-TRACEPOINT_EVENT(
-    cgroup_ust,
-    cgroup_file_blkio_value,
-
-    /* Input arguments */
-    TP_ARGS(
-        char*, path,
-        char*, f_name,
-        int64_t, maj,
-        int64_t, min,
-        uint64_t, value
-    ),
-
-    /* Output event fields */
-    TP_FIELDS(
-        ctf_string(cgrp_path, path)
-        ctf_string(filename, f_name)
-        ctf_integer(int64_t, major, maj)
-        ctf_integer(int64_t, minor, min)
-        ctf_integer(uint64_t, val, value)
-    )
-)
-
-TRACEPOINT_EVENT(
-    cgroup_ust,
-    cgroup_file_devices_value,
-
-    /* Input arguments */
-    TP_ARGS(
-        char*, path,
-        char*, f_name,
-        char*, device_type,
-        char*, maj,
-        char*, min,
-        char*, acc
-    ),
-
-    /* Output event fields */
-    TP_FIELDS(
-        ctf_string(cgrp_path, path)
-        ctf_string(filename, f_name)
-        ctf_string(dev_type, device_type)
-        ctf_string(major, maj)
-        ctf_string(minor, min)
-        ctf_string(access, acc)
+        ctf_string(content, raw_content)
     )
 )
 
